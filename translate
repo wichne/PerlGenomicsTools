@@ -1,0 +1,37 @@
+#!/usr/bin/perl
+
+use Bio::Seq;
+use Bio::SeqIO;
+use strict;
+use Getopt::Long;
+
+my $gcode = 11;
+&GetOptions("gcode=i" => \$gcode);
+#print STDERR "Using translation table $gcode\n";
+
+my @frames = split //, $ARGV[0];
+if (! @frames) {
+    @frames = (1);
+    print STDERR "Defaulting to frame 1\n";
+}
+
+my $IN = Bio::SeqIO->new(-fh=>\*STDIN, -format=>'fasta');
+my $OUT = Bio::SeqIO->new(-fh=>\*STDOUT, -format=>'fasta');
+
+while (my $seqobj = $IN->next_seq()) {
+    foreach my $frame(@frames) {
+	my $protobj;
+	if ($frame > 3) {
+	    $protobj = $seqobj->revcom->translate(-frame=>($frame - 4),
+						  -codon_table=>$gcode);
+	} else {
+	    $protobj = $seqobj->translate(-frame=>($frame - 1),
+					  -codon_table=>$gcode);
+	}
+	$protobj->display_id($seqobj->display_id . "_tx$frame");
+	$OUT->write_seq($protobj);
+    }
+}
+
+exit();
+

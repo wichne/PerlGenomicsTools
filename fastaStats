@@ -1,0 +1,65 @@
+#!/usr/bin/perl
+
+use Bio::SeqIO;
+use strict;
+use Getopt::Std;
+
+my %args;
+# i is for input file path
+# f is for format (not implemented yet)
+&getopts('f:h',\%args);
+
+if ($args{h}) {
+    print "
+USAGE:
+
+fastaStats -f filepath
+
+OR
+
+cat file | fastaStats
+
+OR
+
+fastaStats < filepath
+
+Output is to STDOUT
+
+";
+}
+my $in;
+if ($args{f}) {
+    $in = new Bio::SeqIO(-format => 'fasta',
+			    -file => $args{f});
+} else {
+    $in = new Bio::SeqIO(-format => 'fasta',
+			    -fh => \*STDIN);
+}
+
+while (my $seq = $in->next_seq()) {
+    print ">" . $seq->primary_id . " " . $seq->description;
+
+    # length
+    print " length=" . $seq->length;
+    my $s = $seq->seq;
+
+    # G+C and composition
+    my %CHAR;
+    while ($s =~ /(.)/g) { $CHAR{$1}++ }
+    printf " G+C=%.2f\%",(($CHAR{G} + $CHAR{C} + $CHAR{g} + $CHAR{c})/$seq->length * 100);
+    while (my ($c, $v) = each %CHAR) { print " $c=$v" }
+
+    # gaps
+    my $gap_count = 0;
+    my @gap_lengths;
+    while ($s =~ /([n\.\-]+)/ig) {
+	$gap_count++;
+	push @gap_lengths, length($1);
+    }
+    if ($gap_count) {
+	print " gaps=$gap_count";
+#        print " (" . join(" ", @gap_lengths) . ")" if ($gap_count);
+    }
+    print "\n";
+}
+exit();

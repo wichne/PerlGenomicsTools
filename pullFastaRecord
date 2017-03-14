@@ -1,0 +1,185 @@
+#!/usr/bin/perl -w
+
+use strict;
+use Getopt::Std;
+use TIGR::FASTAreader;
+use TIGR::FASTArecord;
+use TIGR::FASTAwriter;
+use DBI;
+
+my %args;
+&getopts('D:I:i:f:o:x:Rhsc',\%args);
+
+my $usage = "
+-f [filepath] fasta file
+
+-i [identifier]
+
+-I [filepath] file of identifiers
+
+-o [filepath] output file (default is to write separate file for each identifier)
+
+-h print this message
+
+-D [database]
+
+-s pull nucleic acid sequence instead of protein (use only with -D)
+
+-c complement (pull all seqs except those provided)
+
+-R print unformatted sequence (rather than in fasta format)
+
+-x [length] extend a pulled nucleotide sequence by the supplied length
+
+USAGE:
+
+pullFastaRecord -f inputfilepath -i identifier
+
+OR
+
+cat identifierlist | pullFastaRecord -f inputfilepath
+
+OR
+
+pullFastaRecord -f inputfilepath -I identifierfilepath
+
+OR
+
+pullFastaRecord -D db -i identifier
+
+Output files will be named 'identifier.fasta'
+
+";
+
+if ($args{h}) {
+    print $usage;}
+
+if (! $args{f} && ! $args{D}) { die "Need to provide datasource\n" }
+if ($args{s} && ! $args{D}) { die $usage }
+
+my $gc_lo = 0;
+my $gc_hi = 1;
+
+my @ids;
+if ($args{i}) {
+    @ids = $args{i};
+} elsif ($args{I}) {
+    open my $ids, $args{I};
+    while (<$ids>) {
+	push @ids, $_;
+    }
+} elsif ($args{G}) {
+    my @g = split /\-/, $args{G};
+    if ($g[0]) { $gc_lo = $g[0] }
+    if ($g[1]) { $gc_hi = $g[1] }
+} else {
+    @ids = <STDIN>;
+}
+
+# remove any spaces that are part of an input identifier
+for (my $i=0;$i<@ids;$i++) {
+    chomp $ids[$i];
+    if ($ids[$i] =~ /\s/) {
+#	print STDERR "Truncating identifier '$ids[$i]' to ";
+	$ids[$i] =~ s/\s.*//g;
+#	print STDERR "'$ids[$i]'\n";
+    }
+}
+
+if (defined $args{o}) {
+    open my $OUT, ">$args{o}" or die "Can't open $args{o} for write: $!\n";
+    select $OUT;
+}
+$| = 1;
+
+my @all_identifiers;
+if ($args{f}) {
+    my @errors;
+    my $robj = new TIGR::FASTAreader(\@errors, $args{f}) or warn join("\n",@errors) . "\n";
+    if ($args{c}) {
+	my @c_ids = @ids;
+	@ids = ();
+	while ($robj->hasNext) {
+	    my $rec = $robj->next;
+	    my $r_id = $rec->getIdentifier;
+	    push @ids, $r_id unless (grep /\b$r_id\b/, @c_ids);
+	}
+    }
+    foreach my $id(@ids) {
+	chomp $id;
+	my $fobj = $robj->getRecordByIdentifier($id);
+	if (! defined $fobj) {
+	    if (!@all_identifiers) {
+		while ($robj->hasNext) {
+		    my $rec = $robj->next;
+		    push @all_identifiers, $rec->getIdentifier;
+		}
+	    }
+	    my @hits = grep /\b$id\b/, @all_identifiers;
+	    if (@hits == 1) { 
+		$fobj = $robj->getRecordByIdentifier($hits[0]);
+	    } elsif (@hits == 0) {
+		warn "Couldn't find '$id'";
+		next;
+	    } else {
+		warn "Couldn't find unique record for $id: @hits\n";
+		next;
+	    }
+	}
+
+	if ($args{R}) { print $fobj->getData;}
+	else { print $fobj->toString() }
+    }
+} elsif ($args{D}) {
+    my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
+    my $dbh = DBI->connect("dbi:mysql:host=$host;database=$args{D}", "access", "access");
+    if (! defined $dbh) { die "Couldn't connect to db $args{D}\n"; }
+    my $type = $args{s} ? "sequence" : "protein";
+    foreach my $id (@ids) {
+	my $fobj;
+	if ($type eq "sequence" && $args{x}) {
+	    my $query = "SELECT end5, end3, f.asmbl_id"
+		. " from feature f, stan s, ident i"
+		. " where iscurrent=1"
+		. " AND f.asmbl_id=s.asmbl_id"
+		. " AND i.feat_name=f.feat_name"
+		. " AND (i.feat_name = '$id' OR i.locus = '$id')";
+	    my $coord_result = $dbh->selectall_arrayref($query);
+	    if (! @$coord_result) { warn "Couldn't find '$id' in database '$args{D}'"; next }
+	    elsif (@$coord_result > 1) { warn "Multiple results for '$id' in '$args{D}'"; next }
+	    my ($end5, $end3, $asmbl_id) = (@{$coord_result->[0]});
+	    my ($start, $length, $revcomp);
+	    if ($end5 < $end3) {
+		($start, $length, $revcomp) = ($end5-$args{x}, $end3-$end5+(2*$args{x}+1), 0);
+	    } else {
+		($start, $length, $revcomp) = ($end3-$args{x}, $end5-$end3+(2*$args{x}+1), 1);
+	    }
+	    my $seq_query = "SELECT SUBSTRING(sequence, $start, $length)" 
+		. " FROM assembly where asmbl_id=$asmbl_id";
+	    my ($seq) = $dbh->selectrow_array($seq_query);
+	    $fobj = new TIGR::FASTArecord($id . "_ext_" . $args{x} . " end5=$end5 end3=$end3", $seq);
+	    if ($revcomp) {
+		my $rev_fobj = new TIGR::FASTArecord($fobj->getHeader, $fobj->reverseComplementData);
+		$fobj = $rev_fobj;
+	    }
+	} else {
+	    my $query = "SELECT $type"
+		. " from feature f, stan s, ident i"
+		. " where iscurrent=1"
+		. " AND f.asmbl_id=s.asmbl_id"
+		. " AND i.feat_name=f.feat_name"
+		. " AND (i.feat_name = '$id' OR i.locus = '$id')";
+	    my $result = $dbh->selectall_arrayref($query);
+	    if (! @$result) { warn "Couldn't find '$id' in database '$args{D}'"; next }
+	    elsif (@$result > 1) { warn "Multiple results for '$id' in '$args{D}'"; next }
+	    print STDERR "$id\n";
+	    $fobj = new TIGR::FASTArecord($id, $result->[0]->[0]);
+	    if (! defined $fobj) { print "$query\n"; }
+	}
+
+	if ($args{R}) { print $fobj->getData }
+	else { print $fobj->toString() }
+
+    }
+}
+exit();

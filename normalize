@@ -1,0 +1,20 @@
+#!/usr/bin/perl
+
+my $n;
+my %d;
+while (my $l = <STDIN>) {
+    chomp $l;
+    if ($l !~ /^[\.\d]+$/) { next }
+    $d{$l}++;
+    $n++;
+}
+
+foreach my $k (sort {$b<=>$a} keys %d) {
+    foreach my $l (sort {$a<=>$b} keys %d) {
+	if ($l < $k) { $d{$k} += $d{$l} }
+    }
+}
+
+foreach my $k (sort {$a<=>$b} keys %d) {
+    printf "$k %f\n", ($d{$k}/$n);
+}

@@ -1,0 +1,33 @@
+#!/usr/bin/perl -w
+ 
+use strict;
+use Bio::SeqIO;
+ 
+my $verbose = 0;
+
+## read in gff
+
+my $GFF;
+my $OUT;
+if ($ARGV[0] && $ARGV[0] =~ /\.gff$/) {	
+    open $GFF, '<', $ARGV[0]
+	or die "fail\n";
+    my $outfile = $ARGV[0];
+    $outfile =~ s/gff$/pep/;
+    open $OUT, ">", $outfile;
+} else {
+    $GFF = \*STDIN;
+    $OUT = \*STDOUT;
+}
+
+while(<$GFF>){
+    next if (/^#/);
+    chomp;
+    my ($seqid, $product, $gene_gc, $tax_gc, $scaf_gc,
+	$scafid, $org, $prot) = split(/\t/);
+    $prot =~ s/(.{60})/$1\n/g;
+    chomp $prot;
+    print $OUT ">$seqid $product\n$prot\n" if ($prot);
+}
+
+exit();

@@ -1,0 +1,22 @@
+#!/usr/bin/perl
+
+use Bio::SeqIO;
+
+if ($ARGV[0]) {
+    $in = new Bio::SeqIO(-format => 'Fasta',
+			 -file   => $ARGV[0]);
+} else {
+    $in = new Bio::SeqIO(-format => 'fasta',
+			 -fh     => \*STDIN);
+}
+
+my $OUT = Bio::SeqIO->new(-fh       => \*STDOUT,
+			  '-format' => 'Fasta');
+
+while (my $seq = $in->next_seq()) {
+    my $temp = $seq->revcom();
+    $temp->display_id($temp->display_id() . "-rc");
+    $OUT->write_seq($temp);
+}
+
+exit();

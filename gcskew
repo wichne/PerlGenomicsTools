@@ -1,0 +1,29 @@
+#!/usr/bin/perl
+
+use Bio::SeqIO;
+use strict;
+
+# get the fasta file
+my $IN = Bio::SeqIO->new(-file=>$ARGV[0], '-format' => 'Fasta');
+
+# do the analysis
+my $window = $ARGV[1] ? $ARGV[1] : 2000;
+while (my $seqo = $IN->next_seq()) {
+    my $obj = $seqo->primary_id;
+    my $outfile = "$obj.gcskew";
+    $outfile =~ s/\W/_/g;
+    open my $OUT, ">$outfile";
+    print "Creating '$outfile'\n";
+    my $s = $seqo->seq();
+    my $i = 0;
+    while(length($s) - ($window * $i) >= $window){
+	my $g = substr($s, $window * $i, $window) =~ tr/gG/gG/;
+#	$g = substr($s, $window * $i, $window) =~ tr/a/a/ if ($at);
+	my $c = substr($s, $window * $i, $window) =~ tr/cC/cC/;
+#	$c = substr($s, $window * $i, $window) =~ tr/t/t/ if ($at);
+	my $gcskew = $c + $g <= 0 ? 0 : ($c-$g)/($c+$g);
+	my $location = $window * $i;
+	printf $OUT "%d\t%.6f\t%.2f\n",($location, $gcskew, ($c+$g)/$window);
+	$i ++;
+    }
+}

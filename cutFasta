@@ -1,0 +1,69 @@
+#!/usr/bin/perl
+
+use Bio::SeqIO;
+use strict;
+use Getopt::Std;
+
+my %args;
+&getopts('i:f:o:c:C:l:rh',\%args);
+
+if (! $args{f} || $args{h}) {
+    print "
+cutFasta -f fastafile -c coord1 [ -C coord2 -i fastaIdentifier -o outputfile -r -l length -d fragmentIdentifier ]
+USAGE\n";
+    die;
+}
+
+my $IN = Bio::SeqIO->new(-file=>$args{f}, '-format' => 'Fasta');
+my %SEQS;
+my $first_id;
+while (my $seq = $IN->next_seq()) {
+    $SEQS{$seq->{primary_id}} = $seq;
+    $first_id = $seq->{primary_id} if (! $first_id);
+}
+
+my @coord_sets;
+if ($args{c}) {
+    if ($args{C}) {
+	@coord_sets = ("$args{c} $args{C} $args{i}") }
+    else { @coord_sets = ("$args{c} END $args{i}") }
+} else { @coord_sets = <STDIN> }
+
+my $OUT = $args{o} ? Bio::SeqIO->new(-file=>">$args{o}", '-format' => 'Fasta') : 
+    Bio::SeqIO->new(-fh=>\*STDOUT, '-format' => 'Fasta');
+
+foreach my $string(@coord_sets) {
+    chomp $string;
+    my ($c1, $c2, $id) = split /\s+/, $string;
+
+    # if id is provided, look for that id, otherwise take first record
+    if (! $id) { $id = $first_id}
+    my $seq = $SEQS{$id};
+    if (! $seq) { die "Why no seq for $id?\n" }
+
+    my $subseq;
+    if ($c2 =~ /^\d+$/) {
+	my ($lo, $hi, $revcom) = $c2 < $c1 ? ($c2, $c1, 1) : ($c1, $c2, 0);
+	$subseq = $revcom ? $seq->trunc($lo, $hi)->revcom() : $seq->trunc($lo, $hi);
+    } elsif ($args{l} > 0 || $c2 =~ /\+(\d+)/) {
+	my $length = defined $args{l} ? $args{l} : $1;
+	$subseq = $seq->trunc($c1, ($c1 + $length - 1));
+    } elsif ($args{l} < 0 || $c2 =~ /\-(\d+)/) {
+	my $length = defined $args{l} ? $args{l} : $1;
+	$subseq = $seq->trunc($c1, ($seq->length() - $length + 1));
+    } else {
+	$subseq = $seq->trunc($c1, $seq->length());
+    }
+    
+    if ($args{r}) {
+	my $temp = $subseq->revcom();
+	$subseq = $temp;
+    }
+    my $new_id = $args{'d'} ? $args{'d'} : $seq->display_id . "_" . $c1 . "_" . $c2;
+    $subseq->display_id($new_id);
+    $subseq->description($seq->display_id . "_" . $c1 . "_" . $c2);
+    $OUT->write_seq($subseq);
+}
+
+exit();
+    

@@ -1,0 +1,25 @@
+#!/usr/bin/perl
+
+my $n;
+my %d;
+while (my $l = <STDIN>) {
+    chomp $l;
+    if ($l !~ /^[\.\d]+$/) { next }
+    # load values into a hash
+    $d{$l}++;
+    # keep count of total values
+    $n++;
+}
+
+# go through values from least to greatest
+# add counts from lower values
+foreach my $k (sort {$b<=>$a} keys %d) {
+    foreach my $l (sort {$a<=>$b} keys %d) {
+	if ($l < $k) { $d{$k} += $d{$l} }
+	else { last }
+    }
+}
+
+foreach my $k (sort {$a<=>$b} keys %d) {
+    printf "$k %f\n", ($d{$k}/$n);
+}

@@ -1,0 +1,40 @@
+#!/usr/bin/perl
+use Bio::SeqIO;
+use strict;
+use Getopt::Std;
+
+my %arg;
+&getopts('n:', \%arg);
+my $N = $arg{'n'} ? $arg{'n'} : 1;
+
+my $file = $ARGV[0];
+my $IN = Bio::SeqIO->new(-file=>$file, '-format' => 'genbank');
+if (! $IN) { die "Command argument is not Genbank file?\n"; }
+
+# record index to check for when to split to new subfile (if necessary)
+my $n = 0;
+
+# subfile index (if necessary)
+my $i = 1;
+my $outfile = $file . "_" . $i++;
+my $OUT = Bio::SeqIO->new(-file => ">$outfile",
+			  -format => 'genbank');
+
+while (my $seqrec = $IN->next_seq()) {
+    $n++;
+    # if the index is divisible by the count cutoff, switch the output file
+    if ($n % $N == 0) {
+	if ($outfile = $N > 1) {
+	    $file . "_" . $i++;
+	} else {
+	    my @sp = $seqrec->species->classification;
+	    $sp[0] =~ s/\s+/\_/g;
+	    $outfile = $sp[0] . ".gb";
+	}
+	$OUT = Bio::SeqIO->new(-file => ">$outfile",
+			       -format => 'genbank');
+    }
+    $OUT->write_seq($seqrec);
+}
+
+exit();
